@@ -7,7 +7,8 @@
 //   HEADED=1 npm run test:e2e   watch it play
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,18 @@ const require = createRequire(import.meta.url);
 const ZT = require('../src/lib.js');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const profile = mkdtempSync(path.join(tmpdir(), 'zt-e2e-'));
+
+// Point the native messaging bridge at a throwaway data folder. Chrome also
+// looks for host manifests in <user-data-dir>/NativeMessagingHosts.
+const ztHome = mkdtempSync(path.join(tmpdir(), 'zt-e2e-home-'));
+const extId = [...createHash('sha256').update(root).digest('hex').slice(0, 32)].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('');
+const wrapper = path.join(ztHome, 'zt-host');
+writeFileSync(wrapper, `#!/bin/sh\nZT_HOME="${ztHome}" exec "${process.execPath}" "${root}/bridge/host.js"\n`);
+chmodSync(wrapper, 0o755);
+mkdirSync(path.join(profile, 'NativeMessagingHosts'), { recursive: true });
+writeFileSync(path.join(profile, 'NativeMessagingHosts', 'com.zetamac_tracker.bridge.json'), JSON.stringify({
+  name: 'com.zetamac_tracker.bridge', description: 'e2e', path: wrapper, type: 'stdio', allowed_origins: [`chrome-extension://${extId}/`],
+}));
 
 const ctx = await chromium.launchPersistentContext(profile, {
   channel: 'chromium',
@@ -93,8 +106,17 @@ try {
   // Zetamac's own times use Date.now() (1 ms resolution, same event), so the two should agree closely.
   assert.ok(worst <= 25, `timings within 25 ms of Zetamac's own log (worst ${worst} ms)`);
 
-  console.log(`PASS: ${g.score} problems, ${solved.filter((p) => p.errors).length} with planted errors, worst timing gap vs Zetamac ${worst} ms`);
+  const bridged = path.join(ztHome, 'games.json');
+  for (let t = 0; t < 50 && !existsSync(bridged); t++) await new Promise((r) => setTimeout(r, 100));
+  assert.ok(existsSync(bridged), 'bridge wrote games.json');
+  const onDisk = JSON.parse(readFileSync(bridged, 'utf8'));
+  assert.equal(onDisk.length, 1, 'bridge stored the game once');
+  assert.equal(onDisk[0].id, g.id);
+  assert.equal(onDisk[0].problems.length, g.problems.length);
+
+  console.log(`PASS: ${g.score} problems, ${solved.filter((p) => p.errors).length} with planted errors, worst timing gap vs Zetamac ${worst} ms, bridge copy on disk OK`);
 } finally {
   await ctx.close();
   rmSync(profile, { recursive: true, force: true });
+  rmSync(ztHome, { recursive: true, force: true });
 }
