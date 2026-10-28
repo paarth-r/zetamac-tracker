@@ -64,7 +64,7 @@ Tips for using the data:
 
 ### Your data
 
-Everything stays in your browser (`chrome.storage.local`). Nothing is sent anywhere, and the extension has no network access of its own. Under **Data** on the dashboard:
+Everything stays on your computer. Games live in the browser (`chrome.storage.local`), plus a local file if you install the optional bridge below. Nothing is sent over the network, and the extension has no network access of its own. Under **Data** on the dashboard:
 
 - **Export JSON**: back up your history or move it to another browser
 - **Import JSON**: merge an export back in (games already present are skipped)
@@ -72,11 +72,41 @@ Everything stays in your browser (`chrome.storage.local`). Nothing is sent anywh
 
 Removing the extension deletes its data, so export first if you want to keep it.
 
+## Local bridge, CLI and AI agents (optional)
+
+The dashboard only lives inside the browser. The **local bridge** also copies each finished game to a file on your computer, so scripts, notes apps and coding agents (Claude Code, Codex and others) can read your history.
+
+```
+./bridge/install.sh                          # games -> ~/.zetamac-tracker/games.json
+./bridge/install.sh --notes ~/notes/zetamac.md   # ...and keep a Markdown notes page updated
+```
+
+Then reload the extension at `chrome://extensions`. On reload, and on every browser start, it backfills all existing games, and the bridge skips duplicates. Under the hood this is Chrome [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging): the browser starts `bridge/host.js` locally for each message, with no server and no network involved. Requires Node 18+. macOS and Linux; the installer registers the bridge with every Chromium-based browser it finds (Chrome, Chromium, Brave, Edge, Arc).
+
+**Notes page.** With `--notes`, the bridge rewrites a generated section of that Markdown file after every game: trend (best, last-5 vs previous-5 average, improving/steady/plateau/slipping), hold-ups over the last 7 days (time sinks, recall vs execution bottleneck, slowest times-table cells, wrong-digit hot spots, slowest problems), and a day-by-day table. Only the text between `<!-- zt:auto:start -->` and `<!-- zt:auto:end -->` is touched, so the rest of the page is yours. It works with Obsidian or any Markdown notes folder.
+
+**CLI.**
+
+```
+node bin/zt.js summary            # trend, hold-ups and daily table as Markdown
+node bin/zt.js summary --json     # same, as JSON (what agents should read)
+node bin/zt.js summary --days 30 --custom
+node bin/zt.js games --last 3     # raw games with per-problem detail
+node bin/zt.js ingest export.json # merge a dashboard export (e.g. history from before the bridge)
+node bin/zt.js notes              # rewrite the notes page now
+node bin/zt.js paths
+```
+
+**For AI agents.** [`claude/skills/zetamac-coach/SKILL.md`](claude/skills/zetamac-coach/SKILL.md) is a ready-made Claude Code skill that reads the data and coaches from it. Copy it to `~/.claude/skills/zetamac-coach/` and replace `<repo>` with your clone path. Other agents can follow the same file: run `zt summary --json`, lead with `holdups.sinks[0]` and the `bottleneck`, and judge trends over 5+ games.
+
+**Uninstall the bridge:** delete `NativeMessagingHosts/com.zetamac_tracker.bridge.json` from your browser's profile folder (for Chrome on macOS, `~/Library/Application Support/Google/Chrome/`). Your data stays in `~/.zetamac-tracker/` until you delete that too.
+
 ## How it works
 
 - `src/content.js` runs on Zetamac game pages. It watches the problem text and the answer box. A capture-phase `input` listener sees each keystroke before Zetamac's own handler clears the box, and times are taken with `performance.now()`.
 - When the clock hits zero, the problem still on screen is stored as unsolved (it's left out of timing stats) and the game is saved.
 - `src/lib.js` holds all the parsing, classification and statistics as pure functions, shared by the recorder, the dashboard and the tests.
+- `src/background.js` forwards new games to the bridge (if installed) using `chrome.runtime.sendNativeMessage`. Without the bridge, that call fails quietly.
 - `dashboard.html` with `src/dashboard.js` is a plain-JS dashboard. It has no dependencies, draws its charts with hand-written SVG, and loads nothing remote.
 
 **Accuracy:** the end-to-end test plays a real game and compares the stored timings with the per-problem log Zetamac itself sends to its server. They agree to within about 1 ms.
@@ -87,12 +117,12 @@ Requires Node 18+.
 
 ```
 npm install
-npm test                    # unit tests for parsing, classification and stats
+npm test                    # unit tests: parsing, stats, reports, bridge protocol, CLI
 npm run test:e2e            # live end-to-end test (see below)
 HEADED=1 npm run test:e2e   # same, with a visible browser
 ```
 
-The end-to-end test launches Chromium with the extension loaded, has a bot play a real 30-second game on the live site (with a wrong digit and a backspace planted on every 4th problem), then checks the stored game: score, problem count, planted errors, and timings against Zetamac's own log. It needs Playwright's Chromium once: `npx playwright install chromium`. It plays on the real site, so run it when you change the recorder, not in a loop.
+The end-to-end test launches Chromium with the extension loaded, has a bot play a real 30-second game on the live site (with a wrong digit and a backspace planted on every 4th problem), then checks the stored game: score, problem count, planted errors, timings against Zetamac's own log, and that the bridge wrote the game to disk. It registers a throwaway bridge inside the test browser profile and never touches your real data. It needs Playwright's Chromium once: `npx playwright install chromium`. It plays on the real site, so run it when you change the recorder, not in a loop.
 
 ### Project layout
 
@@ -100,11 +130,17 @@ The end-to-end test launches Chromium with the extension loaded, has a bot play 
 manifest.json        MV3 manifest: content script on zetamac game pages, toolbar action
 src/lib.js           pure analysis helpers (no DOM, no chrome.*)
 src/content.js       recorder + end-of-game summary
-src/background.js    opens the dashboard
+src/background.js    opens the dashboard, forwards games to the bridge
+src/report.js        Node: trend, hold-ups, daily rows, Markdown notes block
+src/store.js         Node: ~/.zetamac-tracker store and notes-page writer
+bridge/host.js       native messaging host
+bridge/install.sh    registers the host with your browsers
+bin/zt.js            CLI for you and for agents
+claude/skills/       Claude Code skill for coaching from the data
 dashboard.html       dashboard markup
 src/dashboard.js     dashboard rendering, filters, import/export
 src/dashboard.css    dashboard styles (light/dark tokens)
-test/lib.test.js     unit tests (node:test)
+test/*.test.js       unit tests (node:test)
 test/e2e.mjs         live-site Playwright test
 AGENTS.md            instructions for coding agents working in this repo
 ```
@@ -133,7 +169,7 @@ AGENTS.md            instructions for coding agents working in this repo
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm test` (and `npm run test:e2e` if you touched `src/content.js`) before opening a PR. If you're using a coding agent, point it at [AGENTS.md](AGENTS.md).
+Issues and pull requests are welcome. Please run `npm test` (and `npm run test:e2e` if you touched `src/content.js`, `src/background.js` or the bridge) before opening a PR. If you're using a coding agent, point it at [AGENTS.md](AGENTS.md).
 
 ## License
 

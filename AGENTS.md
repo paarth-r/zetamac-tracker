@@ -4,7 +4,11 @@ Instructions for coding agents (Claude Code, Codex, Cursor and others) working i
 
 ## What this is
 
-A Manifest V3 Chrome extension that records per-problem timing on Zetamac (`https://arithmetic.zetamac.com/game*`) and shows the results on an extension-page dashboard. It has no build step, no framework and no runtime dependencies. Playwright is a dev dependency used only by the end-to-end test.
+A Manifest V3 Chrome extension that records per-problem timing on Zetamac (`https://arithmetic.zetamac.com/game*`) and shows the results on an extension-page dashboard. It has no build step, no framework and no runtime dependencies. Playwright is a dev dependency used only by the end-to-end test. An optional local bridge (Chrome native messaging + Node) copies games to `~/.zetamac-tracker/` for the `zt` CLI and a Markdown notes page.
+
+## If you're here to use the data (not change the code)
+
+Run `node bin/zt.js summary --json` (or `games --last N` for per-problem detail) and follow [`claude/skills/zetamac-coach/SKILL.md`](claude/skills/zetamac-coach/SKILL.md). An empty store means the bridge isn't installed (`./bridge/install.sh`) or the extension hasn't been reloaded since it was. Never edit `~/.zetamac-tracker/games.json` by hand, and never edit inside the `zt:auto` markers of a notes page; the bridge rewrites both.
 
 ## Commands
 
@@ -24,7 +28,12 @@ Use `npm test`. The script uses a glob because `node --test test/` doesn't pick 
 |---|---|---|
 | `src/lib.js` | Parsing, classification, stats | **Pure.** No DOM, no `chrome.*`. Loaded three ways: as a content script, as a dashboard `<script>`, and via `require()` in Node tests. Keep the UMD-style wrapper at the bottom. |
 | `src/content.js` | Recorder on the Zetamac page | Runs at `document_start`, waits for `#game .problem`, `#game input.answer`, `#game .left`. |
-| `src/background.js` | Service worker | Only opens `dashboard.html` (toolbar click or `open-dashboard` message). |
+| `src/background.js` | Service worker | Opens `dashboard.html`; forwards new games (diffed from `storage.onChanged`) to the bridge, and does a full sync on install/startup. Bridge errors must stay silent. |
+| `src/report.js` | Node-only reporting | Trend status, hold-ups, daily rows, `renderMarkdown`, `replaceAutoBlock`. Pure apart from `Date`; tested. |
+| `src/store.js` | Node-only store | `~/.zetamac-tracker/{config.json,games.json,bridge.log}` (`ZT_HOME` overrides). Atomic writes. `ingest()` dedupes by `id`. |
+| `bridge/host.js` | Native messaging host | Framed JSON on stdin/stdout. **Stdout carries only the protocol**: never `console.log` there, log through `store.log`. |
+| `bridge/install.sh` | Installer | Derives the unpacked extension ID from the repo path (sha256 -> a-p), writes the gitignored `bridge/zt-host` wrapper with an absolute node path (browsers start hosts with a minimal PATH), and registers the manifest per browser. |
+| `bin/zt.js` | CLI | `summary`, `games`, `notes`, `ingest`, `paths`. |
 | `dashboard.html`, `src/dashboard.js`, `src/dashboard.css` | Dashboard | Plain DOM + hand-written SVG. |
 
 ## How the recorder works (don't break these)
@@ -45,10 +54,16 @@ Stored games live in `chrome.storage.local` under `games` (schema in README.md, 
 - If a breaking change is unavoidable, bump `version` and migrate old games on read. Don't drop them.
 - Import must keep merging by `id` and skipping duplicates.
 
+## Bridge rules
+
+- Host name `com.zetamac_tracker.bridge` and the `{ type: 'games', games }` / `{ type: 'ping' }` messages are a contract between the extension and installed hosts. Change both sides together and keep old messages working.
+- The notes page is user-owned except between `<!-- zt:auto:start -->` and `<!-- zt:auto:end -->`. `replaceAutoBlock` may also bump the `updated:` frontmatter line, and must not change anything else.
+- Moving the repo folder changes the unpacked extension ID. Re-run `bridge/install.sh` after moving it.
+
 ## Extension rules
 
 - MV3 CSP: no inline scripts or inline event handlers in `dashboard.html`, no remote scripts, no `eval`. Bundle anything you need locally.
-- Keep permissions minimal (`storage`, `unlimitedStorage`). Don't add host permissions or network access; the README promises that nothing leaves the browser.
+- Keep permissions minimal (`storage`, `unlimitedStorage`, `nativeMessaging`). Don't add host permissions or network access; the README promises that nothing goes over the network.
 - Never use `alert`, `confirm` or `prompt`. Destructive actions use the two-click pattern already on "Clear all data".
 - Don't interfere with Zetamac's own page. The summary box is inserted after `#game` and must not cover the "Try again" link.
 
@@ -61,8 +76,9 @@ Stored games live in `chrome.storage.local` under `games` (schema in README.md, 
 
 ## Testing expectations
 
-- New logic goes in `src/lib.js` with tests in `test/lib.test.js`, written first.
-- Recorder changes: run `npm run test:e2e`. It must report `PASS` with a worst timing gap of a few ms against Zetamac's own `/log` payload. The test plays on the real public site, so don't run it in a loop.
+- New logic goes in `src/lib.js` (browser + Node) or `src/report.js` (Node only), with tests in `test/*.test.js`, written first.
+- Bridge or CLI changes: `test/bridge.test.js` spawns the real host and CLI against a temp `ZT_HOME`. Extend it.
+- Recorder, background or bridge changes: run `npm run test:e2e`. It also registers a throwaway bridge in the test profile and checks the game reached disk. It must report `PASS` with a worst timing gap of a few ms against Zetamac's own `/log` payload. The test plays on the real public site, so don't run it in a loop.
 - Dashboard changes: load the extension, seed `chrome.storage.local` with sample games (from a Playwright service-worker `evaluate`, or play a few games), and look at the page in light mode, dark mode and at 390 px wide before calling it done. Check the console for errors.
 
 ## Conventions
