@@ -9,5 +9,10 @@
   },
   "devDependencies": {
     "playwright": "^1.64.1"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paarth-r/zetamac-tracker.git"
   }
 }
