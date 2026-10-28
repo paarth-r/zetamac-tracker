@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Zetamac Tracker",
+  "version": "0.1.0",
+  "description": "Times every Zetamac problem and shows which problem types cost you the most.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "background": { "service_worker": "src/background.js" },
+  "action": { "default_title": "Open Zetamac Tracker dashboard" },
+  "content_scripts": [
+    {
+      "matches": ["https://arithmetic.zetamac.com/game*"],
+      "js": ["src/lib.js", "src/content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
