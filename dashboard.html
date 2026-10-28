@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zetamac Tracker</title>
+  <link rel="stylesheet" href="src/dashboard.css">
+</head>
+<body>
+  <header>
+    <div class="title-row">
+      <h1>Zetamac Tracker</h1>
+      <a class="play" href="https://arithmetic.zetamac.com/game?key=a7220a92" target="_blank" rel="noopener">Play a default game</a>
+    </div>
+    <div class="filters">
+      <div class="seg" id="range" role="group" aria-label="Range">
+        <button data-range="1">Last game</button>
+        <button data-range="5">Last 5</button>
+        <button data-range="20">Last 20</button>
+        <button data-range="today">Today</button>
+        <button data-range="all">All</button>
+      </div>
+      <label class="check"><input type="checkbox" id="defaultOnly" checked> Default mode only</label>
+    </div>
+  </header>
+
+  <main>
+    <p id="empty" class="empty" hidden>No games recorded yet. Play a game on Zetamac with the extension enabled and it will show up here automatically.</p>
+
+    <div id="content">
+      <p id="insight" class="insight"></p>
+      <section class="tiles" id="tiles"></section>
+
+      <section class="card">
+        <h2>Score per game</h2>
+        <p class="sub">Every game in this mode, oldest to newest.</p>
+        <div id="trend" class="chart"></div>
+      </section>
+
+      <section class="card">
+        <h2>By operation</h2>
+        <p class="sub">Think time = how long before your first keystroke. Wrong-digit rate = share of problems where you typed a digit that was not part of the answer.</p>
+        <div id="ops"></div>
+      </section>
+
+      <section class="card">
+        <h2>By problem type</h2>
+        <p class="sub">Slowest first. Time share above problem share means this type is eating your clock.</p>
+        <div id="cats"></div>
+      </section>
+
+      <section class="card">
+        <h2>Times-table grid</h2>
+        <p class="sub">Multiplication and division combined, by the 2-12 factor and the tens of the other factor (so 7 x 86 and 602 / 7 land in row 7, column 80s). Darker = slower median.</p>
+        <div id="grid" class="grid-wrap"></div>
+      </section>
+
+      <section class="card">
+        <h2>Game timeline</h2>
+        <p class="sub" id="timelineSub"></p>
+        <div id="timeline" class="chart"></div>
+      </section>
+
+      <section class="card">
+        <h2>Slowest problems</h2>
+        <div id="slowest"></div>
+      </section>
+
+      <section class="card data">
+        <h2>Data</h2>
+        <div class="data-row">
+          <button id="export">Export JSON</button>
+          <label class="file-btn">Import JSON<input type="file" id="import" accept="application/json"></label>
+          <button id="clear" class="danger">Clear all data</button>
+          <span id="dataMsg" class="sub"></span>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="tip" class="tip" hidden></div>
+  <script src="src/lib.js"></script>
+  <script src="src/dashboard.js"></script>
+</body>
+</html>
